@@ -6,13 +6,13 @@ implement gpt-2 on open-web text database with triton kernels
 
 ```bibtex
 @article{radford2019language,
-  title={Language models are unsupervised multitask learners},
-  author={Radford, Alec and Wu, Jeffrey and Child, Rewon and Luan, David and Amodei, Dario and Sutskever, Ilya},
-  journal={OpenAI blog},
-  volume={1},
-  number={8},
-  pages={9},
-  year={2019}
+	title={Language models are unsupervised multitask learners},
+	author={Radford, Alec and Wu, Jeffrey and Child, Rewon and Luan, David and Amodei, Dario and Sutskever, Ilya},
+	journal={OpenAI blog},
+	volume={1},
+	number={8},
+	pages={9},
+	year={2019}
 }
 ```
 ```bibtex
