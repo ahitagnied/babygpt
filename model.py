@@ -30,9 +30,20 @@ class Block(nn.Module):
 
 class MLP(nn.Module):
     """
+    multi-layer perceptron block used in transformer architectures. expands embedding dimension by 4x, 
+    applies gelu activation, then projects back. follows the architecture commonly used in gpt models.
     """
     def __init__(self, config):
-        pass
+        super().__init__()
+        self.c_fc = nn.Linear(config.n_embd, 4*config.n_embd)
+        self.gelu = nn.GELU(approximate='tanh')
+        self.c_proj = nn.Linear(4*config.n_embd, config.n_embd)
+    
+    def forward(self, x):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_proj(x)
+        return x
 
 class CausalSelfAttention(nn.Module):
     """
