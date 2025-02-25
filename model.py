@@ -4,6 +4,8 @@ import math
 import torch.nn as nn
 from torch.nn import functional as F
 
+device = 'cuda' if torch.cuda.is_available()
+
 @dataclass
 class configGPT:
     block_size: int=1024 # max sequence length 
@@ -130,6 +132,35 @@ class babyGPT(nn.Module):
         # projection layer to vocab size logits - converts final embeddings back to vocab probabilities
         # bias=False since final layer norm already adds a bias term
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+    
+    def forward(self, idx, targets=None): 
+        # idx: input token indices of shape (batch_size, sequence_length)
+        b, t = idx.size()
+        # ensure sequence length doesn't exceed the model's maximum block size
+        assert t <= self.config.block_size 
+        # create position indices for the sequence
+        pos = torch.arange(0, t, dtype=torch.long, device=device)
+        # token embeddings for the input indices - shape (batch_size, seq_length, embedding_dim)
+        token_emb = self.transformer.wte(idx)
+        # get position embeddings - shape (seq_length, embedding_dim)
+        pos_emb = self.transformer.wpe(pos) 
+        # combine token and position embeddings and apply dropout
+        x = self.transformer.drop(token_emb + pos_emb)
+        # pass through each transformer block sequentially
+        for block in self.transformer.h:
+            x = block(x)
+        x = self.transformer.ln_f(x) # apply final layer normalization
+
+        if targets is not None:
+            logits = self.lm_head(x) # training mode: compute logits for all positions
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1) 
+            # compute cross entropy loss, ignoring padding tokens (-1)
+        else: 
+            # inference mode: only compute logits for the last position
+            # useful for autoregressive generation where we only need the next token
+            logits = self.lm_head(x[:, [-1], :])
+            loss = None
+        return logits, loss
 
     @classmethod 
     def from_pretrained(cls, model_type, override_args=None): # copied from https://github.com/karpathy/nanoGPT/blob/master/model.py
@@ -187,6 +218,3 @@ class babyGPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
-
-model = babyGPT.from_pretrained('gpt2')
-print('yay')
