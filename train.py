@@ -76,3 +76,4 @@ for i in range(30):
     loss.backward()
     optimizer.step()
     print(f"step: {i:02d} | loss: {loss.item():.10f}")
+    hello = 1
