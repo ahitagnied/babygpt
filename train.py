@@ -1,8 +1,6 @@
 import tiktoken
 from model import *
 
-print("using device:", device)
-
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2')
 
@@ -30,15 +28,7 @@ y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by
 model = babyGPT(configGPT())
 model.to(device)
 
-<<<<<<< HEAD
-optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
-for i in range(30):
-    optimizer.zero_grad()
-    logits, loss = model(x, y)
-    loss.backward()
-    optimizer.step()
-    print(f"step {i} \t loss: {loss.item()}")
-=======
+#-----------------------------------------------------------------------------------------
 class DataLoaderLite:
     def __init__(self, b, t):
         self.b = b
@@ -66,4 +56,23 @@ class DataLoaderLite:
         if self.current_position + b*t + 1 > len(self.toks):
             self.current_position = 0
         return x, y
->>>>>>> 3d880d2 (add dataloader for shakespear dataset)
+
+#-----------------------------------------------------------------------------------------
+print("using device:", device)
+
+train_loader = DataLoaderLite(b=4, t=32)
+
+# get logits
+model = babyGPT(configGPT())
+model.to(device)
+
+# optimize:
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+for i in range(30):
+    x, y = train_loader.next_batch()
+    x, y = x.to(device), y.to(device)
+    optimizer.zero_grad()
+    logits, loss = model(x, y)
+    loss.backward()
+    optimizer.step()
+    print(f"step: {i:02d} | loss: {loss.item():.10f}")
