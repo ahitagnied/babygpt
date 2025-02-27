@@ -4,7 +4,7 @@ import math
 import torch.nn as nn
 from torch.nn import functional as F
 
-device = 'cuda' if torch.cuda.is_available()
+device = 'cuda' if torch.cuda.is_available() else "cpu"
 
 @dataclass
 class configGPT:
@@ -79,7 +79,7 @@ class CausalSelfAttention(nn.Module):
                             .view(1, 1, config.block_size, config.block_size))
     
     def forward(self, x):
-        b, t, c = x.size # batch size, sequence length, embedding dimension
+        b, t, c = x.size() # batch size, sequence length, embedding dimension
         qkv = self.c_attn(x) # project input into query, key, value vectors
         q, k, v = qkv.split(self.n_embd, dim=2) # split into separate q,k,v tensors
         q = q.view(b, t, self.n_head, c//self.n_head).transpose(1, 2) 
@@ -91,7 +91,7 @@ class CausalSelfAttention(nn.Module):
 
         # compute attention scores
         # (batch, n_head, seq_len, seq_len) = (batch, n_head, seq_len, head_size) @ (batch, n_head, head_size, seq_len)
-        attn = (q @ k.transpose(-2, -1)) * (1/math.sqrt(k.size(-1)))
+        att = (q @ k.transpose(-2, -1)) * (1/math.sqrt(k.size(-1)))
 
         # apply causal mask (prevent attending to future tokens)
         att = att.masked_fill(self.bias[:,:,:t,:t] == 0, float('-inf'))
@@ -126,7 +126,8 @@ class babyGPT(nn.Module):
             wpe = nn.Embedding(config.block_size, config.n_embd),
             # stack of transformer blocks - processes the embeddings through n_layer blocks
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = nn.LayerNorm(config.n_embd) # for stabalization
+            ln_f = nn.LayerNorm(config.n_embd), # for stabalization
+            drop = nn.Dropout(config.dropout) # dropout layer
         ))
 
         # projection layer to vocab size logits - converts final embeddings back to vocab probabilities
