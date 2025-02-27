@@ -4,7 +4,11 @@ import math
 import torch.nn as nn
 from torch.nn import functional as F
 
-device = 'cuda' if torch.cuda.is_available() else "cpu"
+device = "cpu"
+if torch.cuda.is_available():
+    device = "cuda"
+else: 
+    device = "cpu"
 
 @dataclass
 class configGPT:
