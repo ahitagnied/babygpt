@@ -1,6 +1,8 @@
 import tiktoken
 from model import *
 
+print("using device:", device)
+
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2')
 
@@ -28,6 +30,7 @@ y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by
 model = babyGPT(configGPT())
 model.to(device)
 
+<<<<<<< HEAD
 optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 for i in range(30):
     optimizer.zero_grad()
@@ -35,3 +38,32 @@ for i in range(30):
     loss.backward()
     optimizer.step()
     print(f"step {i} \t loss: {loss.item()}")
+=======
+class DataLoaderLite:
+    def __init__(self, b, t):
+        self.b = b
+        self.t = t
+        # read the entire text file
+        with open('shakespear.txt', 'r') as f:
+            text = f.read()
+        # tokenize it 
+        enc = tiktoken.get_encoding('gpt2')
+        toks = enc.encode(text)
+        self.toks = torch.tensor(toks)
+        print(f"loaded {len(self.toks)} tokens")
+        # number of epochs = number of toks/ bt
+        print(f"1 epoch -> {len(self.toks) / (b*t)} batches")
+        # state information
+        self.current_position = 0
+    
+    def next_batch(self):
+        b, t = self.b, self.t
+        buffer = self.toks[self.current_position: self.current_position + b*t + 1]
+        x, y = (buffer[:-1].view(b, t)), (buffer[1:].view(b, t)) # inputs and targets
+        # next step
+        self.current_position += b*t
+        # if next batch is out of bounds, then reset:
+        if self.current_position + b*t + 1 > len(self.toks):
+            self.current_position = 0
+        return x, y
+>>>>>>> 3d880d2 (add dataloader for shakespear dataset)
