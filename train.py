@@ -28,7 +28,10 @@ y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by
 model = babyGPT(configGPT())
 model.to(device)
 
-# forward pass through the model to get logits (unnormalized prediction scores)
-logits, loss = model(x)
-
-print(logits.shape)
+optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+for i in range(30):
+    optimizer.zero_grad()
+    logits, loss = model(x, y)
+    loss.backward()
+    optimizer.step()
+    print(f"step {i} \t loss: {loss.item()}")
