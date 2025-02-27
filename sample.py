@@ -10,7 +10,7 @@ model.eval() # set the model to evaluation mode (disables dropout)
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2') 
 # encode the prompt text into tokens
-token = enc.encode("hello i am a baby version of chatgpt")
+token = enc.encode("i'm lebron james from akron, ohio")
 # convert tokens to a pytorch tensor
 token = torch.tensor(token, dtype=torch.long)
 # add batch dimension and repeat the same prompt for all sequences
