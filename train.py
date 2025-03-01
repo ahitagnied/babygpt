@@ -1,6 +1,6 @@
 import tiktoken
 from model import *
-import time
+import time, math
 
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2')
@@ -43,7 +43,7 @@ class DataLoaderLite:
         self.toks = torch.tensor(toks)
         print(f"loaded {len(self.toks)} tokens")
         # number of epochs = number of toks/ bt
-        print(f"1 epoch -> {len(self.toks) / (b*t)} batches")
+        print(f"1 epoch -> {math.floor(len(self.toks) / (b*t))} batches")
         # state information
         self.current_position = 0
     
@@ -72,6 +72,7 @@ train_loader = DataLoaderLite(b=4, t=1024)
 # get logits
 model = babyGPT(configGPT())
 model.to(device)
+model = torch.compile(model) # super ultra fast 
 
 # optimize:
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -80,6 +81,7 @@ for i in range(50):
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
+    # with torch.autocast(device_type=device, dtype=torch.bfloat16):
     logits, loss = model(x, y)
     loss.backward()
     optimizer.step()
