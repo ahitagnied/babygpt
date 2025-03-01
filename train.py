@@ -1,5 +1,6 @@
 import tiktoken
 from model import *
+import time
 
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2')
@@ -60,11 +61,13 @@ class DataLoaderLite:
 #-----------------------------------------------------------------------------------------
 print("using device:", device)
 
-train_loader = DataLoaderLite(b=4, t=32)
-
 torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
+
+train_loader = DataLoaderLite(b=4, t=1024)
+
+# torch.set_float32_matmul_precision('high')
 
 # get logits
 model = babyGPT(configGPT())
@@ -73,10 +76,23 @@ model.to(device)
 # optimize:
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(50):
+    t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
     logits, loss = model(x, y)
     loss.backward()
     optimizer.step()
-    print(f"step: {i:02d} | loss: {loss.item():.10f}")
+    torch.cuda.synchronize() # wait till gpu is done
+    t1 = time.time()
+    ms = (t1-t0)*1000 # in ms
+    toksps = (train_loader.b * train_loader.t) / (t1 - t0)
+    print(f"step: {i:02d} | loss: {loss.item():.10f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
+
+# with torch.profiler.profile(
+#     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+#     record_shapes=True,
+#     profile_memory=True,
+#     with_stack=True
+# ) as prof:
+# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
