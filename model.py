@@ -137,6 +137,24 @@ class babyGPT(nn.Module):
         # projection layer to vocab size logits - converts final embeddings back to vocab probabilities
         # bias=False since final layer norm already adds a bias term
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        # weight sharing scheme used in attention paper and open ai's gpt2
+        self.transform.wte.weight = self.lm_head
+
+        # this method initializes weights for different types of neural network layers
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            # for linear layers, initialize weights with values from a normal distribution
+            # with mean of 0 and standard deviation of 0.02
+            torch.nn.init.normal_(module.weight, mean=0.0, sd=0.02)
+            if module.bias is not None: 
+                # if the module has bias terms, initialize them all to zero
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding): 
+            # same for embedding layers, help start with small values before training
+            torch.nn.init.normal_(module.weight, mean=0.0, sd=0.02)
     
     def forward(self, idx, targets=None): 
         # idx: input token indices of shape (batch_size, sequence_length)
