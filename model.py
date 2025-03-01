@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 device = "cpu"
 if torch.cuda.is_available():
-    device = "cuda:1"
+    device = "cuda:3"
 else: 
     device = "cpu"
 
