@@ -62,13 +62,17 @@ print("using device:", device)
 
 train_loader = DataLoaderLite(b=4, t=32)
 
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
+
 # get logits
 model = babyGPT(configGPT())
 model.to(device)
 
 # optimize:
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-for i in range(30):
+for i in range(50):
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
@@ -76,4 +80,3 @@ for i in range(30):
     loss.backward()
     optimizer.step()
     print(f"step: {i:02d} | loss: {loss.item():.10f}")
-    hello = 1

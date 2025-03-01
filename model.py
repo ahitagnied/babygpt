@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 device = "cpu"
 if torch.cuda.is_available():
-    device = "cuda"
+    device = "cuda:1"
 else: 
     device = "cpu"
 
@@ -47,6 +47,7 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(config.n_embd, 4*config.n_embd, bias=config.bias)
         self.gelu = nn.GELU(approximate='tanh')
         self.c_proj = nn.Linear(4*config.n_embd, config.n_embd, bias=config.bias)
+        self.c_proj.init_flat = 1
         self.dropout = nn.Dropout(config.dropout)
     
     def forward(self, x):
@@ -139,22 +140,29 @@ class babyGPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         # weight sharing scheme used in attention paper and open ai's gpt2
-        self.transform.wte.weight = self.lm_head
+        self.transformer.wte.weight = self.lm_head.weight
 
         # this method initializes weights for different types of neural network layers
+        # defautl initialisation from gpt2 source code released by openai
         self.apply(self._init_weights)
-    
+            
     def _init_weights(self, module):
+        std = 0.02
         if isinstance(module, nn.Linear):
+            # special initialisation for residual layer
+            if hasattr(module, 'init_flag'):
+                std *= (2 * self.config.n_layer) ** -0.5 # 2 * as <- attn and mlp
             # for linear layers, initialize weights with values from a normal distribution
             # with mean of 0 and standard deviation of 0.02
-            torch.nn.init.normal_(module.weight, mean=0.0, sd=0.02)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            # from xavier initialisation sd <- 1/math.aqrt(n_in + n_out); sd = 0.02 is in the vicinity
+            # due to d_model having values 768, 1600, ...
             if module.bias is not None: 
                 # if the module has bias terms, initialize them all to zero
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding): 
             # same for embedding layers, help start with small values before training
-            torch.nn.init.normal_(module.weight, mean=0.0, sd=0.02)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
     
     def forward(self, idx, targets=None): 
         # idx: input token indices of shape (batch_size, sequence_length)
