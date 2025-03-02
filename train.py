@@ -70,9 +70,26 @@ model = babyGPT(configGPT(vocab_size=50304))
 model.to(device)
 model = torch.compile(model) # super ultra fast 
 
+maxlr = 3e-4
+minlr = 3e-5
+nwarmup = 10
+nsteps = 50
+def lrf(step):
+    # 1: linear warm up 
+    if step < nwarmup: 
+        return maxlr * (step+1) / nwarmup
+    # 2: if steps > nsteps, return minlr
+    if step > nsteps:
+        return minlr
+    # 3: otherwise use cosine decay lr scheduler
+    decay_ratio = (step-nwarmup)/(nsteps-nwarmup)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return minlr + coeff * (maxlr - minlr)
+
 # optimize:
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
-for i in range(50):
+for step in range(nsteps):
     t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
@@ -81,12 +98,16 @@ for i in range(50):
     logits, loss = model(x, y)
     loss.backward()
     norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    # get next lr using schedule 
+    lr = lrf(step)
+    for param_grp in optimizer.param_groups: # update lr for each parameter group
+        param_grp['lr'] = lr
     optimizer.step()
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
     ms = (t1-t0)*1000 # in ms
     toksps = (train_loader.b * train_loader.t) / (t1 - t0)
-    print(f"step: {i:02d} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
+    print(f"step: {step:02d} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
 
 # with torch.profiler.profile(
 #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
