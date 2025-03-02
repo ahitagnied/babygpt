@@ -96,20 +96,20 @@ class CausalSelfAttention(nn.Module):
 
         # compute attention scores
         # (batch, n_head, seq_len, seq_len) = (batch, n_head, seq_len, head_size) @ (batch, n_head, head_size, seq_len)
-        att = (q @ k.transpose(-2, -1)) * (1/math.sqrt(k.size(-1)))
+        # att = (q @ k.transpose(-2, -1)) * (1/math.sqrt(k.size(-1)))
 
-        # apply causal mask (prevent attending to future tokens)
-        att = att.masked_fill(self.bias[:,:,:t,:t] == 0, float('-inf'))
+        # # apply causal mask (prevent attending to future tokens)
+        # att = att.masked_fill(self.bias[:,:,:t,:t] == 0, float('-inf'))
 
-        # softmax to get attention probabilities
-        att = F.softmax(att, dim=-1)
+        # # softmax to get attention probabilities
+        # att = F.softmax(att, dim=-1)
 
-        # apply dropout to attention matrix
-        att = self.attn_dropout(att)
+        # # apply dropout to attention matrix
+        # att = self.attn_dropout(att)
 
-        # apply attention to values
-        y = att @ v
-        # y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # use flash attention
+        # # apply attention to values
+        # y = att @ v
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # use flash attention
 
         # reshape back to original dimensions
         # (batch, seq_len, n_embd)

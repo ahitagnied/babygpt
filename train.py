@@ -25,10 +25,6 @@ buffer = buffer.to(device)
 x = buffer[:-1].view(b,t)
 y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by 1 position)
 
-# initialize the babygpt model with the default configuration
-model = babyGPT(configGPT())
-model.to(device)
-
 #-----------------------------------------------------------------------------------------
 class DataLoaderLite:
     def __init__(self, b, t):
@@ -70,12 +66,12 @@ train_loader = DataLoaderLite(b=4, t=1024)
 # torch.set_float32_matmul_precision('high')
 
 # get logits
-model = babyGPT(configGPT())
+model = babyGPT(configGPT(vocab_size=50304))
 model.to(device)
 model = torch.compile(model) # super ultra fast 
 
 # optimize:
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
 for i in range(50):
     t0 = time.time()
     x, y = train_loader.next_batch()
@@ -84,12 +80,13 @@ for i in range(50):
     # with torch.autocast(device_type=device, dtype=torch.bfloat16):
     logits, loss = model(x, y)
     loss.backward()
+    norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
     ms = (t1-t0)*1000 # in ms
     toksps = (train_loader.b * train_loader.t) / (t1 - t0)
-    print(f"step: {i:02d} | loss: {loss.item():.10f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
+    print(f"step: {i:02d} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
 
 # with torch.profiler.profile(
 #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
