@@ -70,26 +70,23 @@ model = babyGPT(configGPT(vocab_size=50304))
 model.to(device)
 model = torch.compile(model) # super ultra fast 
 
-maxlr = 3e-4
-minlr = 3e-5
-nwarmup = 10
-nsteps = 50
-def lrf(step):
-    # 1: linear warm up 
-    if step < nwarmup: 
-        return maxlr * (step+1) / nwarmup
-    # 2: if steps > nsteps, return minlr
-    if step > nsteps:
-        return minlr
-    # 3: otherwise use cosine decay lr scheduler
-    decay_ratio = (step-nwarmup)/(nsteps-nwarmup)
-    assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-    return minlr + coeff * (maxlr - minlr)
+# learning rate parameters
+max_lr = 3e-4
+min_lr = 3e-5
+n_warmup = 10
+n_steps = 50
 
 # optimize:
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
-for step in range(nsteps):
+
+# initialise the scheduler 
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, 
+    T_max=(n_steps - n_warmup),
+    eta_min=min_lr
+)
+
+for step in range(n_steps):
     t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
@@ -99,9 +96,15 @@ for step in range(nsteps):
     loss.backward()
     norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     # get next lr using schedule 
-    lr = lrf(step)
-    for param_grp in optimizer.param_groups: # update lr for each parameter group
-        param_grp['lr'] = lr
+    # handle learning rate
+    if step < n_warmup:
+        # linear warmup
+        lr = max_lr * (step + 1) / n_warmup
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+    else:
+        # use cosine scheduler for steps after warmup
+        scheduler.step()
     optimizer.step()
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
