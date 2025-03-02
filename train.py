@@ -77,7 +77,8 @@ n_warmup = 10
 n_steps = 50
 
 # optimize:
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
+# optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
+optimizer = model.config_optimizer(weight_decay=0.1, lr=6e-4, betas=(0.9, 0.95), device=device)
 
 # initialise the scheduler 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -110,7 +111,7 @@ for step in range(n_steps):
     t1 = time.time()
     ms = (t1-t0)*1000 # in ms
     toksps = (train_loader.b * train_loader.t) / (t1 - t0)
-    print(f"step: {step:02d} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
+    print(f"step: {step:02d} | lr: {lr:.10f} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
 
 # with torch.profiler.profile(
 #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],

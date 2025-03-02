@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import torch
 import math
+import inspect
 import torch.nn as nn
 from torch.nn import functional as F
 
@@ -250,3 +251,28 @@ class babyGPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
+    
+    def config_optimizer(self, weight_decay, lr, betas, device):
+        # filter parameters that require gradients
+        params_dict = {pn: p for pn, p in self.named_parameters() if p.requires_grad}
+        # group parameters by dimension
+        decay_params = [p for n, p in params_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in params_dict.items() if p.dim() < 2]
+        # create parameter groups
+        param_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+        # log parameter counts
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(f"parameters with weight decay: {len(decay_params)} tensors, {num_decay_params:,} parameters")
+        print(f"parameters without weight decay: {len(nodecay_params)} tensors, {num_nodecay_params:,} parameters")
+        # check if fused AdamW is available
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device[:4] == 'cuda'
+        print(f"using fused adamw: {use_fused}")
+        extra_args = dict(fused=True) if use_fused else dict()
+        # create optimizer
+        optimizer = torch.optim.AdamW(param_groups, lr=lr, betas=betas, **extra_args)
+        return optimizer
