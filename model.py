@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 device = "cpu"
 if torch.cuda.is_available():
-    device = "cuda:3"
+    device = "cuda:5"
 else: 
     device = "cpu"
 
@@ -109,6 +109,7 @@ class CausalSelfAttention(nn.Module):
 
         # apply attention to values
         y = att @ v
+        # y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # use flash attention
 
         # reshape back to original dimensions
         # (batch, seq_len, n_embd)
