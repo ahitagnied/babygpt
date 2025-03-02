@@ -106,6 +106,8 @@ for step in range(n_steps):
     else:
         # use cosine scheduler for steps after warmup
         scheduler.step()
+        # get the current learning rate from the optimizer
+        lr = optimizer.param_groups[0]['lr']
     optimizer.step()
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
