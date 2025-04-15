@@ -357,5 +357,3 @@ class babyGPT(nn.Module):
         # compute model flops utilization as percentage of theoretical peak
         mfu = flops_achieved / theoretical_peak_flops
         return mfu
-    
-    
