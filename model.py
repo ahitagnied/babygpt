@@ -328,3 +328,34 @@ class babyGPT(nn.Module):
             # we don't exclude token embeddings since they're tied with output layer
         
         return total_params
+    
+    def estimate_mfu(self, tokens_per_sec, sequence_length):
+        """
+        estimates model flops utilization (mfu) compared to theoretical peak performance
+        helps evaluate efficiency of model implementation on current hardware
+        based on methodology from palm paper (https://arxiv.org/abs/2204.02311)
+        """
+        # calculate parameters and configuration values
+        n_params = self.get_num_params()
+        cfg = self.config
+        n_layers, n_heads, d_model = cfg.n_layer, cfg.n_head, cfg.n_embd
+        head_size = d_model // n_heads
+        
+        # estimate flops per token based on model architecture
+        # 6n for feed-forward network (in common architectures)
+        # 12lhst for attention mechanism (l=layers, h=heads, s=head_size, t=seq_length)
+        flops_per_token = 6 * n_params + 12 * n_layers * n_heads * head_size * sequence_length
+        flops_per_seq = flops_per_token * sequence_length
+        
+        # calculate achieved flops based on measured tokens per second
+        flops_achieved = flops_per_seq * tokens_per_sec
+        
+        # compare to theoretical peak flops of hardware (a100 gpu example)
+        # adjust this value based on your specific hardware
+        theoretical_peak_flops = 312e12  # 312 tflops for a100 gpu with bf16
+        
+        # compute model flops utilization as percentage of theoretical peak
+        mfu = flops_achieved / theoretical_peak_flops
+        return mfu
+    
+    
