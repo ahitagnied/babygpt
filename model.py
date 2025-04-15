@@ -276,3 +276,40 @@ class babyGPT(nn.Module):
         # create optimizer
         optimizer = torch.optim.AdamW(param_groups, lr=lr, betas=betas, **extra_args)
         return optimizer
+    
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+        """
+        takes a conditioning sequence of indices idx (longtensor of shape (b,t)) and completes
+        the sequence max_new_tokens times, feeding the predictions back into the model each time.
+        model should be in eval() mode when calling this function.
+        """
+        for _ in range(max_new_tokens):
+            # if sequence is too long, crop it to fit the model's context window
+            idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            
+            # run the model forward to get logits for next token prediction
+            logits, _ = self(idx_cond)
+            
+            # extract logits for the lasts position and apply temperature scaling
+            # higher temperature = more randomness, lower = more deterministic
+            logits = logits[:, -1, :] / temperature
+            
+            # optionally filter to only the top k most likely tokens
+            # reduces the chance of sampling low-probability tokens
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                # mask out all logits below the top k threshold
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            
+            # convert logits to probabilities using softmax
+            probs = F.softmax(logits, dim=-1)
+            
+            # sample next token from the probability distribution
+            # multinomial sampling allows for controlled randomness
+            idx_next = torch.multinomial(probs, num_samples=1)
+            
+            # append the new token to our sequence and continue the loop
+            idx = torch.cat((idx, idx_next), dim=1)
+        
+        # return the full sequence including the original and generated tokens
+        return idx
