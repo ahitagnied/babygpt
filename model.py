@@ -313,3 +313,18 @@ class babyGPT(nn.Module):
         
         # return the full sequence including the original and generated tokens
         return idx
+    
+    def get_num_params(self, include_embeddings=True):
+        """
+        counts and returns the total number of parameters in the model
+        """
+        # count all parameters in the model
+        total_params = sum(p.numel() for p in self.parameters())
+        
+        # optionally subtract embedding parameters
+        if not include_embeddings:
+            # exclude position embeddings
+            total_params -= self.transformer.wpe.weight.numel()
+            # we don't exclude token embeddings since they're tied with output layer
+        
+        return total_params
