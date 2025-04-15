@@ -79,8 +79,7 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        # create causal mask (lower triangular matrix)
-        # tokens can only attend to previous tokens in sequence
+        # create causal mask (lower triangular matrix) -> tokens can only attend to previous tokens in sequence
         self.register_buffer('bias', torch.tril(torch.ones(config.block_size, config.block_size))
                             .view(1, 1, config.block_size, config.block_size))
     
@@ -120,7 +119,7 @@ class CausalSelfAttention(nn.Module):
     
 class babyGPT(nn.Module):
     """
-    an implementation of the 117M model of ChatGPT-2s
+    an implementation of the 117M model of ChatGPT-2
     """
     def __init__(self, config):
         super().__init__()
@@ -149,7 +148,7 @@ class babyGPT(nn.Module):
         self.apply(self._init_weights)
             
     def _init_weights(self, module):
-        std = 0.02
+        std = 0.02 # set an initial standard deviation for weight initialization
         if isinstance(module, nn.Linear):
             # special initialisation for residual layer
             if hasattr(module, 'init_flag'):
@@ -159,7 +158,7 @@ class babyGPT(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=std)
             # from xavier initialisation sd <- 1/math.aqrt(n_in + n_out); sd = 0.02 is in the vicinity
             # due to d_model having values 768, 1600, ...
-            if module.bias is not None: 
+            if module.bias is not None:
                 # if the module has bias terms, initialize them all to zero
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding): 
