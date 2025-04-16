@@ -87,9 +87,9 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
-total_batch_size = 32000 # 2^15 
+total_batch_size = 524288 # 2^19
 # set batch size and sequence length
-b, t = 2, 128 # b=batch size, t=timesteps (sequence length)
+b, t = 8, 512 # b=batch size, t=timesteps (sequence length)
 # create a tensor from the tokens, adding one extra token for the target shift
 assert total_batch_size % (b*t*ddp_world_size) == 0, "total_batch_size must be divisible by b*t*ddp_world_size"
 num_grad_accum = total_batch_size // (b*t*ddp_world_size) 
@@ -99,7 +99,7 @@ if master_process: # only print once, for the master process
 
 #-----------------------------------------------------------------------------------------
 
-train_loader = DataLoaderLite(b=4, t=1024, rank=ddp_rank, nump=ddp_world_size) 
+train_loader = DataLoaderLite(b=8, t=512, rank=ddp_rank, nump=ddp_world_size) 
 
 torch.set_float32_matmul_precision('high')
 
@@ -109,15 +109,14 @@ model.to(device)
 
 # learning rate parameters
 max_lr = 6e-4
-min_lr = 3e-5
+min_lr = max_lr * 0.1
 n_warmup = 10
 n_steps = 50
 
 # optimize:
 optimizer = model.config_optimizer(weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95), device=device)
+model = torch.compile(model) # super ultra fast 
 
-if not ddp: 
-    model = torch.compile(model) # super ultra fast 
 if ddp:
     from torch.nn.parallel import DistributedDataParallel as DDP
     # wrap the model with DDP
@@ -138,10 +137,10 @@ for step in range(n_steps):
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
 
-        # with torch.amp.autocast():
-        logits, loss = model(x, y)
-        loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
-        lossf += loss.detach()
+        with torch.autocast(device_type=device.type, dtype=torch.float16):
+            logits, loss = model(x, y)
+            loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
+            lossf += loss.detach()
 
         if ddp: 
             model.require_backward_grad_sync = (babystep == num_grad_accum - 1)
