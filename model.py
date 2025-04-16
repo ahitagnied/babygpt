@@ -4,10 +4,11 @@ import math
 import inspect
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 device = "cpu"
 if torch.cuda.is_available():
-    device = "cuda:5"
+    device = "cuda"
 else: 
     device = "cpu"
 
@@ -269,7 +270,7 @@ class babyGPT(nn.Module):
         print(f"parameters without weight decay: {len(nodecay_params)} tensors, {num_nodecay_params:,} parameters")
         # check if fused AdamW is available
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available and device[:4] == 'cuda'
+        use_fused = fused_available and (device.type == 'cuda')
         print(f"using fused adamw: {use_fused}")
         extra_args = dict(fused=True) if use_fused else dict()
         # create optimizer

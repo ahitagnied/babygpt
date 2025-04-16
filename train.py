@@ -14,7 +14,7 @@ text = text[:1000]
 toks = enc.encode(text) # tokenize the text using the gpt2 tokenizer
 
 # set batch size and sequence length
-b, t = 4, 32 # b=batch size, t=timesteps (sequence length)
+b, t = 2, 128 # b=batch size, t=timesteps (sequence length)
 
 # create a tensor from the tokens, adding one extra token for the target shift
 buffer = torch.tensor(toks[:b*t+1])
@@ -27,9 +27,11 @@ y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by
 
 #-----------------------------------------------------------------------------------------
 class DataLoaderLite:
-    def __init__(self, b, t):
+    def __init__(self, b, t, rank, nump):
         self.b = b
         self.t = t
+        self.rank = rank
+        self.nump = nump
         # read the entire text file
         with open('shakespear.txt', 'r') as f:
             text = f.read()
@@ -38,73 +40,72 @@ class DataLoaderLite:
         toks = enc.encode(text)
         self.toks = torch.tensor(toks)
         print(f"loaded {len(self.toks)} tokens")
-        # number of epochs = number of toks/ bt
-        print(f"1 epoch -> {math.floor(len(self.toks) / (b*t))} batches")
         # state information
-        self.current_position = 0
+        self.current_position = self.rank * self.b * self.t # start at the beginning of the data for this rank
     
     def next_batch(self):
         b, t = self.b, self.t
         buffer = self.toks[self.current_position: self.current_position + b*t + 1]
         x, y = (buffer[:-1].view(b, t)), (buffer[1:].view(b, t)) # inputs and targets
         # next step
-        self.current_position += b*t
+        self.current_position += b * t * self.nump
         # if next batch is out of bounds, then reset:
-        if self.current_position + b*t + 1 > len(self.toks):
-            self.current_position = 0
+        if self.current_position + b * t * self.nump + 1 > len(self.toks):
+            self.current_position = self.rank * self.b * self.t
         return x, y
 
 #-----------------------------------------------------------------------------------------
-print("using device:", device)
 
-from torch.distribution import init_process_group, destroy_process_group
+from torch.distributed import init_process_group, destroy_process_group
+import torch.distributed as dist
+import os
+# need to run using torch run -> torchrun --standalone --nproc_per_node=4 train.py
 
 # set up distributed data parallel (ddp) for multi-gpu training
-ddp = int(os.environ.get('RANK', 1)) > 1  # check if rank > 1 to determine if we're in ddp mode
+ddp = int(os.environ.get('RANK', -1)) != -1 # check if we're in distributed training mode
 
 if ddp:  # if we're in distributed training mode
     init_process_group(backend='nccl')  # initialize the process group using nccl backend (optimized for nvidia gpus)
     
     ddp_rank = int(os.environ.get('RANK'))  # global rank of this process across all nodes
-    ddp_local_rank = int(os.environ.get('LOCAL_RANK'))  # local rank on this machine (which gpu to use)
+    ddp_local_rank = int(os.environ.get('LOCAL_RANK'))  # local rank (which gpu to use)
     ddp_world_size = int(os.environ.get('WORLD_SIZE'))  # total number of processes/gpus in the training
     
-    device = f'cuda:{ddp_local_rank}'  # assign this process to the appropriate gpu
+    device = torch.device(f'cuda:{ddp_local_rank}') # assign this process to the appropriate gpu
     torch.cuda.set_device(device)  # set the cuda device for this process
     
     master_process = ddp_rank == 0  # only rank 0 is the master process
-    print(f"using device: {device}")  # log which gpu this process is using
-    print(f"ddp rank: {ddp_rank} | ddp local rank: {ddp_local_rank} | ddp world size: {ddp_world_size}")
 else:
     # vanilla training (single gpu or cpu)
     ddp_rank = 0  # no rank in non-distributed mode
     ddp_local_rank = 0  # no local rank in non-distributed mode
     ddp_world_size = 1  # only one process in non-distributed mode
-    master_process = True  # in non-distributed mode, this is always the master process
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # use cuda if available, otherwise cpu
-    print(f"using device: {device}")  # log which device we're using
+    master_process = True  
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') 
 
 torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
-total_batch_size = 524288 # 2^19 or ~0.5M tokens
+total_batch_size = 32000 # 2^15 
 # set batch size and sequence length
-b, t = 4, 1024 # b=batch size, t=timesteps (sequence length)
+b, t = 2, 128 # b=batch size, t=timesteps (sequence length)
 # create a tensor from the tokens, adding one extra token for the target shift
-assert total_batch_size % (b*t) == 0, "total_batch_size must be divisible by b*t"
-num_grad_accum = total_batch_size // (b*t) # number of gradient accumulation steps, 128 <- 524288/ (4*1024)
-print(f"total batch size: {total_batch_size}")
-print(f"gradient accumulation steps: {num_grad_accum}")
+assert total_batch_size % (b*t*ddp_world_size) == 0, "total_batch_size must be divisible by b*t*ddp_world_size"
+num_grad_accum = total_batch_size // (b*t*ddp_world_size) 
+if master_process: # only print once, for the master process 
+    print(f"total batch size: {total_batch_size}")
+    print(f"gradient accumulation steps: {num_grad_accum} \n")
 
-train_loader = DataLoaderLite(b=4, t=1024)
+#-----------------------------------------------------------------------------------------
+
+train_loader = DataLoaderLite(b=4, t=1024, rank=ddp_rank, nump=ddp_world_size) 
 
 torch.set_float32_matmul_precision('high')
 
-# get logits
+# initialise model 
 model = babyGPT(configGPT(vocab_size=50304))
 model.to(device)
-model = torch.compile(model) # super ultra fast 
 
 # learning rate parameters
 max_lr = 6e-4
@@ -115,6 +116,13 @@ n_steps = 50
 # optimize:
 optimizer = model.config_optimizer(weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95), device=device)
 
+if not ddp: 
+    model = torch.compile(model) # super ultra fast 
+if ddp:
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    # wrap the model with DDP
+    model = DDP(model, device_ids=[ddp_local_rank])
+    
 # initialise the scheduler 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, 
@@ -129,12 +137,20 @@ for step in range(n_steps):
     for babystep in range(num_grad_accum):
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
-        # with torch.autocast(device_type=device, dtype=torch.bfloat16):
+
+        # with torch.amp.autocast():
         logits, loss = model(x, y)
         loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
         lossf += loss.detach()
+
+        if ddp: 
+            model.require_backward_grad_sync = (babystep == num_grad_accum - 1)
         loss.backward()
+
+    if ddp: 
+        dist.all_reduce(lossf, op=dist.ReduceOp.AVG) # sum the loss across all processes
     norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
     # get next lr using schedule 
     # handle learning rate
     if step < n_warmup:
@@ -151,6 +167,19 @@ for step in range(n_steps):
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
     s = (t1-t0) # in s
-    toks = train_loader.b * train_loader.t * num_grad_accum
+    toks = train_loader.b * train_loader.t * num_grad_accum * ddp_world_size
     toksps = toks / s
-    print(f"step: {step:02d} | lr: {lr:.10f} | loss: {lossf:.10f} | norm: {norm:.4f} | time: {s*1000:.2f} ms | toks/s: {toksps:.2f}")
+    if master_process: # only print once, for the master process
+        print(f"step: {step:02d} | lr: {lr:.10f} | loss: {lossf:.10f} | norm: {norm:.4f} | time: {s*1000:.2f} ms | toks/s: {toksps:.2f}")
+
+if ddp: 
+    destroy_process_group()  # clean up the process group
+    print("destroyed process group")
+
+# save the model
+if master_process: # only save once, for the master process
+    torch.save(model.state_dict(), 'results/babyGPT.pth')
+    print("saved model")
+
+import sys; sys.exit(0) # exit the script
+#-----------------------------------------------------------------------------------------
