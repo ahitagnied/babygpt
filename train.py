@@ -61,9 +61,18 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
+total_batch_size = 524288 # 2^19 or ~0.5M tokens
+# set batch size and sequence length
+b, t = 4, 1024 # b=batch size, t=timesteps (sequence length)
+# create a tensor from the tokens, adding one extra token for the target shift
+assert total_batch_size % (b*t) == 0, "total_batch_size must be divisible by b*t"
+num_grad_accum = total_batch_size // (b*t) # number of gradient accumulation steps, 128 <- 524288/ (4*1024)
+print(f"total batch size: {total_batch_size}")
+print(f"gradient accumulation steps: {num_grad_accum}")
+
 train_loader = DataLoaderLite(b=4, t=1024)
 
-# torch.set_float32_matmul_precision('high')
+torch.set_float32_matmul_precision('high')
 
 # get logits
 model = babyGPT(configGPT(vocab_size=50304))
@@ -71,14 +80,13 @@ model.to(device)
 model = torch.compile(model) # super ultra fast 
 
 # learning rate parameters
-max_lr = 3e-4
+max_lr = 6e-4
 min_lr = 3e-5
 n_warmup = 10
 n_steps = 50
 
 # optimize:
-# optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8) # optimisation hyperparams from GPT-3 paper
-optimizer = model.config_optimizer(weight_decay=0.1, lr=6e-4, betas=(0.9, 0.95), device=device)
+optimizer = model.config_optimizer(weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95), device=device)
 
 # initialise the scheduler 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -89,12 +97,16 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 
 for step in range(n_steps):
     t0 = time.time()
-    x, y = train_loader.next_batch()
-    x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
-    # with torch.autocast(device_type=device, dtype=torch.bfloat16):
-    logits, loss = model(x, y)
-    loss.backward()
+    lossf = 0.0
+    for babystep in range(num_grad_accum):
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device)
+        # with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        logits, loss = model(x, y)
+        loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
+        lossf += loss.detach()
+        loss.backward()
     norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     # get next lr using schedule 
     # handle learning rate
@@ -111,9 +123,10 @@ for step in range(n_steps):
     optimizer.step()
     torch.cuda.synchronize() # wait till gpu is done
     t1 = time.time()
-    ms = (t1-t0)*1000 # in ms
-    toksps = (train_loader.b * train_loader.t) / (t1 - t0)
-    print(f"step: {step:02d} | lr: {lr:.10f} | loss: {loss.item():.10f} | norm: {norm:.4f} | time: {ms:.2f} ms | toks/s: {toksps:.2f}")
+    s = (t1-t0) # in s
+    toks = train_loader.b * train_loader.t * num_grad_accum
+    toksps = toks / s
+    print(f"step: {step:02d} | lr: {lr:.10f} | loss: {lossf:.10f} | norm: {norm:.4f} | time: {s*1000:.2f} ms | toks/s: {toksps:.2f}")
 
 # with torch.profiler.profile(
 #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
