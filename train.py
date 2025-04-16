@@ -57,6 +57,33 @@ class DataLoaderLite:
 #-----------------------------------------------------------------------------------------
 print("using device:", device)
 
+from torch.distribution import init_process_group, destroy_process_group
+
+# set up distributed data parallel (ddp) for multi-gpu training
+ddp = int(os.environ.get('RANK', 1)) > 1  # check if rank > 1 to determine if we're in ddp mode
+
+if ddp:  # if we're in distributed training mode
+    init_process_group(backend='nccl')  # initialize the process group using nccl backend (optimized for nvidia gpus)
+    
+    ddp_rank = int(os.environ.get('RANK'))  # global rank of this process across all nodes
+    ddp_local_rank = int(os.environ.get('LOCAL_RANK'))  # local rank on this machine (which gpu to use)
+    ddp_world_size = int(os.environ.get('WORLD_SIZE'))  # total number of processes/gpus in the training
+    
+    device = f'cuda:{ddp_local_rank}'  # assign this process to the appropriate gpu
+    torch.cuda.set_device(device)  # set the cuda device for this process
+    
+    master_process = ddp_rank == 0  # only rank 0 is the master process
+    print(f"using device: {device}")  # log which gpu this process is using
+    print(f"ddp rank: {ddp_rank} | ddp local rank: {ddp_local_rank} | ddp world size: {ddp_world_size}")
+else:
+    # vanilla training (single gpu or cpu)
+    ddp_rank = 0  # no rank in non-distributed mode
+    ddp_local_rank = 0  # no local rank in non-distributed mode
+    ddp_world_size = 1  # only one process in non-distributed mode
+    master_process = True  # in non-distributed mode, this is always the master process
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # use cuda if available, otherwise cpu
+    print(f"using device: {device}")  # log which device we're using
+
 torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
@@ -127,11 +154,3 @@ for step in range(n_steps):
     toks = train_loader.b * train_loader.t * num_grad_accum
     toksps = toks / s
     print(f"step: {step:02d} | lr: {lr:.10f} | loss: {lossf:.10f} | norm: {norm:.4f} | time: {s*1000:.2f} ms | toks/s: {toksps:.2f}")
-
-# with torch.profiler.profile(
-#     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-#     record_shapes=True,
-#     profile_memory=True,
-#     with_stack=True
-# ) as prof:
-# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
