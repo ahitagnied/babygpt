@@ -1,4 +1,0 @@
-# tokenizer
-
-def tokenizer():
-    pass
