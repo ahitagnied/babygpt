@@ -1,6 +1,6 @@
 import tiktoken
 from model import *
-import time, math
+import time, math, os
 
 # initialize the gpt2 tokenizer
 enc = tiktoken.get_encoding('gpt2')
@@ -177,6 +177,7 @@ if ddp:
 
 # save the model
 if master_process: # only save once, for the master process
+    os.makedirs('results', exist_ok=True)  # create results directory if it doesn't exist
     torch.save(model.state_dict(), 'results/babyGPT.pth')
     print("saved model")
 
