@@ -40,23 +40,23 @@ def write_shard(f, data):
     """
     write the tokenized data to a file.
     """
-    np.save(f, toks_np)
+    np.save(f, data)
 
 # tokenize the dataset and write to shards
-nprocs = max(1, ox.cpu_count()//2)  # number of processes to use for tokenization
+nprocs = max(1, os.cpu_count()//2)  # number of processes to use for tokenization
 with mp.Pool(nprocs) as pool:
     sid = 0 # track which shard we're writing to
     all_toks = np.empty((shard_size,), dtype=np.uint16)  # buffer for tokens
     num_toks = 0  # number of tokens written to the current shard
     progress_bar = None
     for toks in pool.imap(tokenize, fw, chunksize=16):
-        if num_toks + len(toks) > shard_size:
+        if num_toks + len(toks) < shard_size:
             # write the current shard to a file
             all_toks[num_toks:num_toks+len(toks)] = toks
             num_toks += len(toks)
             if progress_bar is None: 
                 progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"shard {sid}")
-            rpogress_bar.update(len(toks))
+            progress_bar.update(len(toks))
         else: 
             split = "val" if sid == 0 else "train"
             f = os.path.join(DATA_CACHE_PATH, f"fwds_{split}_{sid:06d}")
