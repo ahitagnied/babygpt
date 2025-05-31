@@ -2,28 +2,17 @@ import tiktoken
 from model import *
 import time, math, os
 
-# initialize the gpt2 tokenizer
-enc = tiktoken.get_encoding('gpt2')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # read shakespeare text from a file
 with open('shakespear.txt', 'r') as f:
     text = f.read()
 
+# initialize the gpt2 tokenizer
+enc = tiktoken.get_encoding('gpt2')
+
 # take only the first 1000 characters of text for this example
-text = text[:1000]
-toks = enc.encode(text) # tokenize the text using the gpt2 tokenizer
-
-# set batch size and sequence length
-b, t = 2, 128 # b=batch size, t=timesteps (sequence length)
-
-# create a tensor from the tokens, adding one extra token for the target shift
-buffer = torch.tensor(toks[:b*t+1])
-buffer = buffer.to(device)
-
-# split into input (x) and target (y) tensors
-# x contains tokens 0 to b*t-1, reshaped into b batches of t tokens each
-x = buffer[:-1].view(b,t)
-y = buffer[1:].view(b,t) # y contains tokens 1 to b*t, also reshaped (shifted by 1 position)
+toks = torch.tensor(enc.encode(text), dtype=torch.long) # tokenize the text using the gpt2 tokenizer
 
 #-----------------------------------------------------------------------------------------
 class DataLoaderLite:
@@ -32,25 +21,19 @@ class DataLoaderLite:
         self.t = t
         self.rank = rank
         self.nump = nump
-        # read the entire text file
-        with open('shakespear.txt', 'r') as f:
-            text = f.read()
-        # tokenize it 
-        enc = tiktoken.get_encoding('gpt2')
-        toks = enc.encode(text)
-        self.toks = torch.tensor(toks)
-        print(f"loaded {len(self.toks)} tokens")
-        # state information
+        self.toks = toks.to(device)
+        self.device = device
         self.current_position = self.rank * self.b * self.t # start at the beginning of the data for this rank
+        print(f"[rank {rank}] loaded {self.toks.size(0)} tokens on {device}")
     
     def next_batch(self):
         b, t = self.b, self.t
         buffer = self.toks[self.current_position: self.current_position + b*t + 1]
         x, y = (buffer[:-1].view(b, t)), (buffer[1:].view(b, t)) # inputs and targets
-        # next step
+        # advance by world size
         self.current_position += b * t * self.nump
         # if next batch is out of bounds, then reset:
-        if self.current_position + b * t * self.nump + 1 > len(self.toks):
+        if self.current_position + b * t * self.nump + 1 > self.toks.size(0):
             self.current_position = self.rank * self.b * self.t
         return x, y
 
@@ -58,7 +41,6 @@ class DataLoaderLite:
 
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
-import os
 # need to run using torch run -> torchrun --standalone --nproc_per_node=4 train.py
 
 # set up distributed data parallel (ddp) for multi-gpu training
