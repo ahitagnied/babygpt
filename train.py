@@ -89,7 +89,7 @@ if torch.cuda.is_available():
 
 total_batch_size = 524288 # 2^19
 # set batch size and sequence length
-b, t = 8, 512 # b=batch size, t=timesteps (sequence length)
+b, t = 16, 1024 # b=batch size, t=timesteps (sequence length)
 # create a tensor from the tokens, adding one extra token for the target shift
 assert total_batch_size % (b*t*ddp_world_size) == 0, "total_batch_size must be divisible by b*t*ddp_world_size"
 num_grad_accum = total_batch_size // (b*t*ddp_world_size) 
@@ -115,7 +115,7 @@ n_steps = 50
 
 # optimize:
 optimizer = model.config_optimizer(weight_decay=0.1, lr=3e-4, betas=(0.9, 0.95), device=device)
-model = torch.compile(model) # super ultra fast 
+model = torch.compile(model, backend="eager") # super ultra fast 
 
 if ddp:
     from torch.nn.parallel import DistributedDataParallel as DDP
@@ -137,7 +137,7 @@ for step in range(n_steps):
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
 
-        with torch.autocast(device_type=device.type, dtype=torch.float16):
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
             logits, loss = model(x, y)
             loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
             lossf += loss.detach()
