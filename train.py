@@ -5,7 +5,7 @@ import time, math, os
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # read shakespeare text from a file
-with open('shakespear.txt', 'r') as f:
+with open('data/shakespear/shakespear.txt', 'r') as f:
     text = f.read()
 
 # initialize the gpt2 tokenizer
