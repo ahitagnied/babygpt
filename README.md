@@ -4,6 +4,12 @@ implement gpt-2 on open-web text database with triton kernels
 
 # citations: 
 
+# to run: 
+
+```bash
+torchrun --standalone --nproc_per_node=8 -m train.sp_train
+```
+
 ```bibtex
 @article{radford2019language,
 	title={Language models are unsupervised multitask learners},
