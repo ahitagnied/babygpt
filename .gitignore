@@ -2,3 +2,4 @@ __pycache__
 results/babyGPT.pth
 .DS_Store
 data/fineweb/fwds
+results/
