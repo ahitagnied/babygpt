@@ -1,6 +1,12 @@
 # babyGPT: learning gpt-2 from the ground up
 
-a minimal, educational implementation of GPT-2 designed to understand how large language models work from first principles. this project strips away the complexity of production systems to focus on the core transformer architecture and training dynamics that power modern language models.
+a minimal, educational implementation of GPT-2 designed to understand how large language models work from first principles. 
+
+<p align="center">
+  <img src='assets/inference.png' width='100%'>
+</p>
+
+this project strips away the complexity of production systems to focus on the core transformer architecture and training dynamics that power modern language models.
 
 ## motivation
 
