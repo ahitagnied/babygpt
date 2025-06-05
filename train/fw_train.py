@@ -45,6 +45,11 @@ class DataLoaderLite:
             self.toks = load_toks(self.shards[self.current_shard])  # load the tokens from the next shard
             self.current_position = self.rank * self.b * self.t
         return x, y
+    
+    def reset(self):
+        self.current_shard = 0
+        self.toks = load_toks(self.shards[self.current_shard])
+        self.current_position = self.b * self.t * self.rank
 
 #-----------------------------------------------------------------------------------------
 
@@ -80,7 +85,7 @@ if torch.cuda.is_available():
 
 total_batch_size = 524288 # 2^19
 # set batch size and sequence length
-b, t = 64, 1024 # b=batch size, t=timesteps (sequence length)
+b, t = 32, 1024 # b=batch size, t=timesteps (sequence length)
 # create a tensor from the tokens, adding one extra token for the target shift
 assert total_batch_size % (b*t*ddp_world_size) == 0, "total_batch_size must be divisible by b*t*ddp_world_size"
 num_grad_accum = total_batch_size // (b*t*ddp_world_size) 
@@ -91,6 +96,7 @@ if master_process: # only print once, for the master process
 #-----------------------------------------------------------------------------------------
 
 train_loader = DataLoaderLite(b=8, t=512, rank=ddp_rank, nump=ddp_world_size, split='train') 
+val_loader = DataLoaderLite(b=8, t=512, rank=ddp_rank, nump=ddp_world_size, split='val') 
 
 torch.set_float32_matmul_precision('high')
 
@@ -122,6 +128,27 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 
 for step in range(n_steps):
     t0 = time.time()
+    # evaluate loss every 100 steps
+    if step % 100 == 0:
+        model.eval()
+        val_loader.reset()
+        with torch.no_grad():
+            val_loss_total = 0
+            val_loss_steps = 20
+            for _ in range(val_loss_steps):
+                x, y = val_loader.next_batch()
+                x, y = x.to(device), y.to(device)
+                with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+                    logits, loss = model(x, y)
+                loss = loss/val_loss_steps
+                val_loss_total += loss.detach()
+        if ddp:
+            dist.all_reduce(val_loss_total, op=dist.ReduceOp.AVG)
+        if master_process:
+            print(f"val loss: {val_loss_total.item():.4f}")
+
+    # train loop
+    model.train()
     optimizer.zero_grad()
     lossf = 0.0
     for babystep in range(num_grad_accum):
@@ -130,8 +157,9 @@ for step in range(n_steps):
 
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
             logits, loss = model(x, y)
-            loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
-            lossf += loss.detach()
+            
+        loss /= num_grad_accum # scale the loss by the number of gradient accumulation steps
+        lossf += loss.detach()
 
         if ddp: 
             model.require_backward_grad_sync = (babystep == num_grad_accum - 1)
