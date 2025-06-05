@@ -9,14 +9,25 @@ import argparse
 import os
 from model import babyGPT, configGPT
 
+class Colors:
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    RESET = '\033[0m'
+
 class TextGenerator:
-    def __init__(self, model_path=None, model_type='gpt2', device=None):
+    def __init__(self, model_path=None, device=None):
         """
         initialize the text generator
         
         args:
             model_path (str): path to saved model checkpoint (e.g., 'results/babygpt_fw.pth')
-            model_type (str): pre-trained model type ('gpt2', 'gpt2-medium', etc.)
             device (str): device to run on ('cuda', 'cpu', 'auto')
         """
         # set device
@@ -24,16 +35,15 @@ class TextGenerator:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = torch.device(device)
-        print(f"using device: {self.device} \n")
+        print(f"{Colors.CYAN} using device: {Colors.BOLD}{self.device}{Colors.RESET}\n")
         # initialise tokenizer
         self.tokenizer = tiktoken.get_encoding('gpt2')
         # load model
         if model_path and os.path.exists(model_path):
             self.model = self._load_checkpoint(model_path)
-            print(f"loaded model from checkpoint: {model_path}")
+            print(f"{Colors.GREEN}✅ loaded model from: {Colors.BOLD}{model_path}{Colors.RESET}\n")
         else:
-            self.model = self._load_pretrained(model_type)
-            print(f"loaded pretrained model: {model_type}")
+            raise FileNotFoundError(f"checkpoint not found at {model_path}")
         self.model.to(self.device)
         self.model.eval()
     
@@ -56,9 +66,9 @@ class TextGenerator:
             state_dict = checkpoint['model']
             
             if 'step' in checkpoint:
-                print(f"checkpoint from step: {checkpoint['step']}")
+                print(f"{Colors.BLUE}📈 checkpoint from step: {Colors.BOLD}{checkpoint['step']}{Colors.RESET}")
             if 'val_loss' in checkpoint:
-                print(f"validation loss: {checkpoint['val_loss']:.4f}")
+                print(f"{Colors.BLUE}📊 val loss: {Colors.BOLD}{checkpoint['val_loss']:.4f}{Colors.RESET}")
         else:
             # direct state dict
             config = configGPT(vocab_size=50304)
@@ -80,14 +90,10 @@ class TextGenerator:
         model.load_state_dict(cleaned_state_dict)
         return model
     
-    def _load_pretrained(self, model_type):
-        """load pretrained model from HuggingFace"""
-        return babyGPT.from_pretrained(model_type)
-    
-    def generate(self, prompt, max_new_tokens=50, temperature=1.0, top_k=50, top_p=None, seed=None):
+    def generate(self, prompt, max_new_tokens=50, temperature=1.0, top_k=50, top_p=None, seed=None, stream=False):        
         """
         generate text continuation given a prompt
-        
+
         args:
             prompt (str): input text prompt
             max_new_tokens (int): max number of new tokens to generate
@@ -95,6 +101,7 @@ class TextGenerator:
             top_k (int): top-k sampling (None to disable)
             top_p (float): top-p (nucleus) sampling (None to disable)
             seed (int): random seed for reproducible generation
+            stream (bool): whether to show tokens as they're generated  
             
         returns:
             str: generated text (prompt + continuation)
@@ -103,13 +110,13 @@ class TextGenerator:
             torch.manual_seed(seed)
             if torch.cuda.is_available():
                 torch.cuda.manual_seed(seed)
-        # Encode the prompt
+        # encode the prompt
         tokens = self.tokenizer.encode(prompt)
         tokens = torch.tensor(tokens, dtype=torch.long, device=self.device)
-        tokens = tokens.unsqueeze(0)  # Add batch dimension
-        print(f"prompt: '{prompt}' \n")
-        print(f"generating {max_new_tokens} tokens... \n")
-        print("-" * 50)
+        tokens = tokens.unsqueeze(0)  # + batch dimension
+        print(f"{Colors.MAGENTA}💭 prompt:{Colors.RESET} {Colors.DIM}'{prompt}'{Colors.RESET}\n")
+        print(f"{Colors.YELLOW}⚡ generating {max_new_tokens} tokens...{Colors.RESET}\n")
+        print(f"{Colors.CYAN}{'═' * 60}{Colors.RESET}")
         # generate tokens
         with torch.no_grad():
             for i in range(max_new_tokens):
@@ -144,9 +151,11 @@ class TextGenerator:
                 # append to sequence
                 tokens = torch.cat([tokens, next_token], dim=1)
                 # optional: print token as it's generated
-                new_text = self.tokenizer.decode([next_token.item()])
-                print(new_text, end='', flush=True)
-        print("\n" + "-" * 50)
+                if stream:
+                    new_text = self.tokenizer.decode([next_token.item()])
+                    print(new_text, end='', flush=True)
+        if stream:
+            print(f"\n{Colors.CYAN}{'═' * 60}{Colors.RESET}")
         # decode the full sequence
         generated_tokens = tokens[0].tolist()
         generated_text = self.tokenizer.decode(generated_tokens)
@@ -181,9 +190,9 @@ class TextGenerator:
                     max_new_tokens=max_tokens,
                     temperature=temperature,
                     top_k=top_k,
-                    seed=42  # for reproducible results
+                    seed=42,  # for reproducible results
+                    stream=True  # show tokens as they are generated
                 )
-                print(f"\nfull generated text:\n'{generated}'")
             except KeyboardInterrupt:
                 print("\nexiting...")
                 break
@@ -195,22 +204,18 @@ class TextGenerator:
         print("""
             available commands:
             - enter any text prompt to generate continuation
-            - 'quit' - exit the program
+            - 'quit' - exit the program  
             - 'help' - show this help message
 
             params:
             - max new tokens: # of tokens to generate (default: 50)
-            - temp: controls randomness (0.1=deterministic, 2.0=very random)
+            - temp: controls randomness (0.1=deterministic, 2.0=very random)  
             - top-k: keep only top k tokens for sampling (higher=more diverse)
         """)
-
 
 def main():
     parser = argparse.ArgumentParser(description='generate text using trained babyGPT model')
     parser.add_argument('--model-path', type=str, help='path to saved model checkpoint')
-    parser.add_argument('--model-type', type=str, default='gpt2', 
-                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'],
-                       help='pretrained model type (used if no checkpoint provided)')
     parser.add_argument('--prompt', type=str, help='text prompt for generation')
     parser.add_argument('--max-tokens', type=int, default=50, help='max new tokens to generate')
     parser.add_argument('--temperature', type=float, default=1.0, help='sampling temperature')
@@ -219,11 +224,11 @@ def main():
     parser.add_argument('--device', type=str, choices=['cuda', 'cpu', 'auto'], default='auto',
                        help='device to run on')
     parser.add_argument('--interactive', action='store_true', help='run in interactive mode')
+    parser.add_argument('--stream', action='store_true', help='show tokens as they are generated')
     args = parser.parse_args()
     # initialise generator
     generator = TextGenerator(
         model_path=args.model_path,
-        model_type=args.model_type,
         device=args.device
     )
     if args.interactive:
@@ -235,9 +240,18 @@ def main():
             max_new_tokens=args.max_tokens,
             temperature=args.temperature,
             top_k=args.top_k,
-            seed=args.seed
+            seed=args.seed,
+            stream=args.stream
         )
-        print(f"\ngenerated text:\n'{generated_text}'")
+        if args.stream:
+            print(f"\n{Colors.GREEN}📝 complete generated text:{Colors.RESET}")
+            print(f"{Colors.DIM}[PROMPT]{Colors.RESET} {Colors.WHITE}{args.prompt}{Colors.RESET}")
+            print(f"{Colors.DIM}[GENERATED]{Colors.RESET} {Colors.YELLOW}{generated_text[len(args.prompt):]}{Colors.RESET}")
+            print(f"\n{Colors.MAGENTA}🔗 full text:{Colors.RESET}")
+            print(f"{Colors.WHITE}{generated_text}{Colors.RESET}")
+        else:
+            print(f"\n{Colors.GREEN}📝 generated text:{Colors.RESET}")
+            print(f"{Colors.WHITE}{generated_text}{Colors.RESET}")
     else:
         print("no prompt provided. Use --prompt or --interactive mode.")
         print("use --help for more options.")
