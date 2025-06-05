@@ -197,7 +197,7 @@ if ddp:
 # save the model
 if master_process: # only save once, for the master process
     os.makedirs('results', exist_ok=True)  # create results directory if it doesn't exist
-    torch.save(model.state_dict(), 'results/babygpt_shakespear.pth')
+    torch.save(model.state_dict(), 'results/babygpt_fw.pth')
     print("saved model")
 
 import sys; sys.exit(0) # exit the script
